@@ -383,6 +383,55 @@ def find_list_add_button(container):
     return buttons[0]
 
 
+def _header_bounds(grid) -> list[tuple[int, int]]:
+    """(left, right) of each header cell, left to right -- the x-ranges that
+    define which column a row cell belongs to. Empty if the grid has no
+    headers, in which case callers fall back to sequential mapping."""
+    try:
+        headers = grid.descendants(control_type="HeaderItem")
+    except Exception:
+        return []
+    bounds = []
+    for h in headers:
+        try:
+            r = h.rectangle()
+            bounds.append((r.left, r.right))
+        except Exception:
+            continue
+    bounds.sort(key=lambda b: b[0])
+    return bounds
+
+
+def _column_for(cell_rect: tuple[int, int], bounds: list[tuple[int, int]]) -> int | None:
+    """Which header column a cell belongs to, decided by the cell's LEFT EDGE.
+
+    The left edge, specifically -- not the midpoint, and not the width. These
+    grids do not size a cell to its column: the "Select a product" dialog
+    reports its Item No. cell as **790 px wide**, spanning essentially the whole
+    row, while still starting exactly at the Item No. column and carrying that
+    column's text. Judging by midpoint puts such a cell under a column three
+    places to its right; treating width as evidence of "row decoration"
+    discards it outright. An earlier version of this function did the latter
+    and silently dropped every SKU, so existing products looked missing and got
+    created a second time.
+
+    Where a cell starts is the one thing that reliably identifies its column,
+    so the rule is simply: the last column that begins at or before the cell.
+    Genuine decoration (the full-width blank Text these grids also emit) is
+    excluded by its empty text before it ever reaches here.
+    """
+    if not bounds:
+        return None
+    left = cell_rect[0]
+    chosen: int | None = None
+    for i, (b_left, _b_right) in enumerate(bounds):
+        if b_left <= left + 2:  # 2px tolerance for sub-pixel/border offsets
+            chosen = i
+        else:
+            break
+    return chosen
+
+
 def read_table_rows(grid, columns: list[str]) -> list[dict[str, str]]:
     """Read every row of an accessible grid, returning one dict per row keyed by
     `columns` in left-to-right order, PLUS a `"_row"` key holding the row's own
@@ -395,7 +444,20 @@ def read_table_rows(grid, columns: list[str]) -> list[dict[str, str]]:
     clicking a dialog's OK button after only reading row text (never clicking
     the row itself to select it first) silently does nothing: no item gets
     added, no error is raised, the dialog just closes. `click_row()` below
-    uses this wrapper to select the row before OK is invoked."""
+    uses this wrapper to select the row before OK is invoked.
+
+    Cells are assigned to columns by **horizontal position against the grid's
+    own header rectangles** whenever the grid exposes headers, and only fall
+    back to left-to-right sequence when it doesn't. Sequence alone is wrong,
+    and wrongly in the most damaging way: blank cells produce no Text element
+    at all, so a row with an empty First Name and Last Name yields two fewer
+    values and every remaining value slides two columns left. Live symptom --
+    a saved contact reported as `Company='Amsterdam', First Name='Vanguard
+    Systems B.V.', ZIP=''`, so the exact-match test could never match a row
+    that was in fact perfectly correct, and the flow created a duplicate.
+    Position is the only thing that survives a missing cell.
+    """
+    header_bounds = _header_bounds(grid)
     rows: list[dict[str, str]] = []
     row_nodes = []
     for ct in ("DataItem", "ListItem", "Custom"):
@@ -407,7 +469,7 @@ def read_table_rows(grid, columns: list[str]) -> list[dict[str, str]]:
             break
 
     for row in row_nodes:
-        cells: list[tuple[int, str]] = []
+        cells: list[tuple[int, int, str]] = []  # (left, right, text)
         try:
             texts_source = row.descendants(control_type="Text") or [row]
         except Exception:
@@ -415,16 +477,28 @@ def read_table_rows(grid, columns: list[str]) -> list[dict[str, str]]:
         for c in texts_source:
             try:
                 text = c.window_text() or ""
-                left = c.rectangle().left
+                r = c.rectangle()
             except Exception:
                 continue
-            if text:
-                cells.append((left, text))
-        cells.sort(key=lambda c: c[0])
-        values = [t for _, t in cells]
-        if not values:
+            if text.strip():
+                cells.append((r.left, r.right, text))
+        if not cells:
             continue
-        row_dict = {col: (values[i] if i < len(values) else "") for i, col in enumerate(columns)}
+        cells.sort(key=lambda c: c[0])
+
+        row_dict: dict[str, str] = {col: "" for col in columns}
+        if header_bounds:
+            # Position-based: immune to a blank cell simply not existing.
+            for left, right, text in cells:
+                idx = _column_for((left, right), header_bounds)
+                if idx is not None and idx < len(columns):
+                    row_dict[columns[idx]] = text
+        else:
+            # No headers to align against -- sequential, and accept that a
+            # missing cell shifts everything after it.
+            for i, col in enumerate(columns):
+                row_dict[col] = cells[i][2] if i < len(cells) else ""
+
         row_dict["_row"] = row
         rows.append(row_dict)
     return rows

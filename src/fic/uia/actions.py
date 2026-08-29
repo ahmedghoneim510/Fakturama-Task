@@ -37,6 +37,39 @@ def escape_keys(text: str) -> str:
     return "".join("{" + ch + "}" if ch in _SENDKEYS_SPECIAL else ch for ch in text)
 
 
+def wait_actionable(ctrl, *, timeout: float = 10.0, description: str = "control"):
+    """Block until `ctrl` is actually visible and enabled, then return it.
+
+    Existing in the UIA tree and being usable are different things, and the gap
+    between them is measured in fractions of a second -- which is exactly long
+    enough to fail intermittently. A dialog reports its children before it has
+    finished laying them out, so a resolve-then-immediately-type sequence can
+    hand pywinauto a control that raises `ElementNotVisible`. Confirmed live on
+    the "Select the address" dialog's search box: the same code path had worked
+    dozens of times before losing that race once.
+
+    Every mutating primitive below waits through this first, so the readiness
+    check lives in one place rather than being remembered at each call site.
+    Timing bugs that appear once in twenty runs are the worst kind to leave to
+    discipline.
+    """
+    def _ready():
+        try:
+            if ctrl.is_visible() and ctrl.is_enabled():
+                return ctrl
+        except Exception:
+            return None
+        return None
+
+    try:
+        return wait_until(_ready, timeout=timeout, poll=0.1, description=f"{description} to be actionable")
+    except Exception as exc:
+        raise VerificationFailed(
+            f"{description} never became visible and enabled within {timeout}s -- "
+            f"the UI element exists but is not usable",
+        ) from exc
+
+
 def read_value(ctrl) -> str:
     """UIA's ValuePattern (pywinauto: `.get_value()`) is the correct way to read
     LIVE content for Edit/ComboBox controls. `window_text()` reads the static
@@ -95,6 +128,7 @@ def set_segmented_date(pane_ctrl, value: str) -> None:
     so comparison is done on parsed month/day/year, not the raw string.
     """
     month, day, year = value.split("/")
+    wait_actionable(pane_ctrl, description="date field")
     r = pane_ctrl.rectangle()
     pane_ctrl.set_focus()
     pane_ctrl.click_input(coords=(5, (r.bottom - r.top) // 2))
@@ -129,6 +163,7 @@ def set_text(ctrl, value: str, *, readback: bool = True) -> None:
         too, so it's used unconditionally rather than branching on type.
     Tab commits the edit, since several SWT fields validate on focus-out.
     """
+    wait_actionable(ctrl, description="text field")
     ctrl.set_focus()
     ctrl.click_input()
     ctrl.type_keys("{END}", pause=0.03)
@@ -209,6 +244,7 @@ def select_combo(ctrl, value: str) -> None:
     instead of raising OptionUnavailable against a option list that was never
     real options to begin with.
     """
+    wait_actionable(ctrl, description="combo box")
     ctrl.set_focus()
 
     if _norm(read_value(ctrl)).casefold() == _norm(value).casefold():
@@ -316,6 +352,7 @@ def click(ctrl, *, verify_opens: str | None = None, timeout: float = 10.0):
     window entirely if Fakturama isn't actually foregrounded (also confirmed
     live, with VS Code/browser windows overlapping the same screen region).
     """
+    wait_actionable(ctrl, description="click target")
     try:
         ctrl.set_focus()
     except Exception:

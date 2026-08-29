@@ -629,12 +629,23 @@ PAYMENT_LIST_COLUMNS = [
 
 def ensure_payment_method(session: FakturamaSession, method: str, state: RunState) -> None:
     """brief S2.10.1-2.10.6."""
+    # An unmapped payment code is NOT decided here. It used to be: this
+    # function refused up front for any method missing from
+    # config/app.yaml's payment_code_map, before touching the UI at all.
+    #
+    # That gate protected nothing on this build. Its Payment editor has no
+    # payment-code field whatsoever (only Name, Account, Description, the
+    # discount/day fields and the template texts), so the mapped code is never
+    # written anywhere -- yet a perfectly ordinary method like "ACH Transfer"
+    # was blocked because a lookup table lacked a value that could not have
+    # been used. What actually reaches Fakturama, and what the Invoice later
+    # selects by, is the method NAME.
+    #
+    # So the decision moves to the point where it is real: if the editor DOES
+    # expose a payment-code field and we have no mapping for it, that is a
+    # genuine "a human must choose" and still halts (see below). If the field
+    # is absent, the missing mapping is irrelevant and is merely logged.
     code = payment_code_for(method)
-    if code is None:
-        raise ManualReviewRequired(
-            f"payment method {method!r} has no entry in the payment-code map "
-            "(config/app.yaml payment_code_map) -- add it or route to manual review",
-        )
 
     # Live-confirmed: the navigator entry is "Payments", not "terms of
     # payment" (which is the brief's own wording for the concept, and appears
@@ -689,18 +700,29 @@ def ensure_payment_method(session: FakturamaSession, method: str, state: RunStat
     # Same situation as the TAX Rate editor's missing VAT-code field (#27).
     # Attempted, then logged and skipped rather than treated as fatal.
     try:
-        actions.select_combo(
-            locator.resolve_by_label(
-                p_editor, "payment code", aliases=["Code"], want=("ComboBox",)
-            ),
-            code,
+        code_ctrl = locator.resolve_by_label(
+            p_editor, "payment code", aliases=["Code"], want=("ComboBox",)
         )
-        state.note(f"payment code '{code}' set")
     except (ControlNotFound, AmbiguousControl) as exc:
+        code_ctrl = None
         state.note(
             f"no payment-code field on this build's Payment editor ({exc}) -- "
-            f"left at its default; the mapped code for {method!r} would have been {code!r}"
+            f"nothing to set; the mapped code for {method!r} would have been {code!r}"
         )
+
+    if code_ctrl is not None:
+        # The field exists, so the mapping genuinely matters here.
+        if code is None:
+            raise ManualReviewRequired(
+                f"this Fakturama build DOES expose a payment-code field, but "
+                f"{method!r} has no entry in the payment-code map "
+                f"(config/app.yaml payment_code_map). Choosing a tax/payment code "
+                f"on someone's behalf is not a guess worth making -- add the "
+                f"mapping, or route this order to manual review.",
+                method=method,
+            )
+        actions.select_combo(code_ctrl, code)
+        state.note(f"payment code '{code}' set")
 
     # These already default to zero, and they redisplay with units ("0 %"),
     # which means a plain write+read-back comparison reports a false mismatch

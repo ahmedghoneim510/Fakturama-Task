@@ -84,7 +84,7 @@ def run(
     to skip the LLM, not a way to skip the checks. Useful for re-running a
     known payload deterministically, and for working without an API key.
     """
-    from fic.errors import AutomationError
+    from fic.errors import AlreadyProcessedError, AutomationError
     from fic.extraction import extract_and_reconcile, reconcile, self_consistency_check
     from fic.flow import run_flow
     from fic.models import SourceOrder
@@ -121,6 +121,29 @@ def run(
         if dry_run:
             console.print("[yellow]--dry-run: stopping before any UI interaction[/yellow]")
             raise typer.Exit(0)
+
+        # Idempotency BEFORE the session, not inside run_flow. The check itself
+        # was already correct, but it ran after launch_or_attach() -- so a
+        # refusal still cost a full Fakturama cold start (1-2 minutes) before
+        # printing an answer that needed no UI at all. Reading the saved
+        # documents needs nothing but a file, so it belongs before anything is
+        # opened. run_flow keeps its own copy of the check for callers that use
+        # it directly; the call is pure, so running it twice costs nothing.
+        if not from_json or True:  # applies to both input paths
+            from fic.uia.contact_resolver import find_orders_by_reference
+
+            if not force:
+                already = find_orders_by_reference(order.external_reference)
+                if already:
+                    raise AlreadyProcessedError(
+                        f"an order with Cust.Ref {order.external_reference!r} has "
+                        f"already been saved ("
+                        f"{', '.join(d['document'] for d in already)}) -- re-running "
+                        f"would create a duplicate for the same purchase. Pass "
+                        f"--force to run anyway.",
+                        external_reference=order.external_reference,
+                        existing_documents=already,
+                    )
 
         session = FakturamaSession()
         session.launch_or_attach()

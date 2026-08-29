@@ -40,7 +40,23 @@ matching:
 
 # Closed mapping, brief S2.10.4. A payment method not listed here has no defined
 # payment-code -> ManualReviewRequired, never guessed.
+# Source-document payment method -> the payment code Fakturama expects.
+#
+# Only used when the Payment editor actually exposes a payment-code field.
+# This build does not (its editor has Name/Account/Description/discount fields
+# and nothing else), so a method missing from this table is logged and the run
+# continues -- the method NAME is what gets written and what the Invoice later
+# selects by. On a build that DOES expose the field, an unmapped method halts
+# for review rather than having a code chosen on the operator's behalf.
+#
+# Entries below are the ones that can be justified from the payment instrument
+# itself. Anything genuinely ambiguous is deliberately absent rather than
+# guessed: a wrong payment code is a wrong financial record.
 payment_code_map:
   "Bank Transfer": "Credit transfer"
+  "Wire Transfer": "Credit transfer"
+  "ACH Transfer": "Credit transfer"      # ACH credit push is a credit transfer
   "Credit Card": "Credit card"
+  "Direct Debit": "Direct debit"
   "SEPA Direct Debit": "SEPA direct debit"
+  "Cash": "Cash"
