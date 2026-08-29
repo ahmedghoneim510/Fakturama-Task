@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# secrets — never commit
+.env
+
+# generated run artifacts (per-run screenshots/logs may contain customer PII from
+# the source order image — keep these out of version control)
+runs/*
+!runs/.gitkeep
+
+# local Fakturama workspace copies used for e2e test resets
+.fakturama-test-workspace/

@@ -1,0 +1,53 @@
+[project]
+name = "fakturama-image-to-cash"
+version = "0.1.0"
+description = "Fakturama Image-to-Cash Automation — order image to saved, verified Order + Invoice"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40",
+    "google-genai>=1.0",
+    "pydantic>=2.7",
+    "pywinauto>=0.6.8; platform_system == 'Windows'",
+    "uiautomation>=2.0.20; platform_system == 'Windows'",
+    "comtypes>=1.4; platform_system == 'Windows'",
+    "pillow>=10",
+    "mss>=9",
+    "typer>=0.12",
+    "rich>=13",
+    "structlog>=24",
+    "pyyaml>=6",
+    "python-dateutil>=2.9",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-mock>=3.14", "ruff>=0.6"]
+
+[project.scripts]
+fic = "fic.cli:app"
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: full flow against a live Fakturama instance (Windows only, GUI required)",
+    "live: hits a real extraction provider API instead of a mocked response",
+]
+addopts = "-m \"not e2e and not live\""
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+# Deliberately not enabling flake8-bandit (S) / flake8-blind-except (BLE): the
+# UIA layer catches broad Exception on purpose -- individual elements in a live
+# accessibility tree go stale or misbehave in ways no fixed exception list
+# anticipates, and the read-back verification after every action (not the
+# exception type) is what actually guards correctness here.
+select = ["E", "F", "I", "UP"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fic"]

@@ -1,0 +1,46 @@
+# Application-level configuration. No UI coordinates live here or anywhere else in
+# this repo -- see config/selectors.yaml for how controls are actually resolved.
+
+fakturama:
+  # Auto-detected at runtime by uia/session.py from the usual install locations;
+  # override with FIC_FAKTURAMA_EXE in .env if yours differs.
+  candidate_paths:
+    - "C:\\Program Files (x86)\\Fakturama\\Fakturama.exe"
+    - "C:\\Program Files\\Fakturama\\Fakturama.exe"
+  window_title_pattern: "^Fakturama.*"
+  startup_timeout_seconds: 30
+
+locale:
+  # Live-confirmed against the actual installed instance: its Date field is a
+  # ComboBox-composite widget that expects MM/DD/YYYY text (this install is
+  # US-localized -- its Items list also displays "$", not "EUR"). This is a
+  # per-install setting, not a Fakturama constant -- a German-localized install
+  # would very plausibly expect "DD.MM.YYYY" instead. Verify against your own
+  # instance with `fic probe` before trusting this default on a different box.
+  date_format: "%m/%d/%Y"
+
+timeouts:
+  poll_interval_seconds: 0.15
+  control_seconds: 10
+  modal_seconds: 10
+  list_stabilize_seconds: 0.6
+  list_stabilize_timeout_seconds: 10
+  save_seconds: 15
+
+grounding:
+  # S1's ambiguity refusal margin (label-anchored resolution, see uia/locator.py).
+  # Two candidates within this many pixels of each other from their anchor -> refuse
+  # rather than guess.
+  ambiguity_margin_px: 12
+
+matching:
+  # Tolerance for money comparisons (recomputed vs. printed vs. Fakturama-saved).
+  money_tolerance: "0.02"
+  confidence_threshold: 0.80
+
+# Closed mapping, brief S2.10.4. A payment method not listed here has no defined
+# payment-code -> ManualReviewRequired, never guessed.
+payment_code_map:
+  "Bank Transfer": "Credit transfer"
+  "Credit Card": "Credit card"
+  "SEPA Direct Debit": "SEPA direct debit"

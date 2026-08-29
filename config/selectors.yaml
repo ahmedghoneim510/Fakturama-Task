@@ -1,0 +1,181 @@
+# Semantic control descriptors -- zero coordinates. This file is the readable
+# contract between flow.py and Fakturama's UI, and what makes "no hardcoded layout"
+# inspectable rather than just claimed.
+#
+# `expect:` is a post-condition: after a field is written (or deliberately left
+# alone), actions.py asserts the read-back equals it.
+# `readonly_intent` / `never_write` / `never_click` encode the brief's prohibitions
+# (proposed No., proposed Customer ID, Standard VAT, Set as standard, ...) --
+# actions.py refuses to write/click a control carrying these flags.
+# `scope:` disambiguates labels that legitimately appear twice in one editor
+# (VAT as header mode vs. totals readout; Discount as a line column vs. order field).
+
+main_window:
+  title_re: "^Fakturama.*"
+
+toolbar:
+  # Names confirmed live against a running Fakturama 1.6.9 -- the real toolbar
+  # carries accelerator suffixes ("Save (Ctrl+S)") that find_by_name() matches
+  # as a prefix by default, so the short form below is enough.
+  order: {strategy: name, control_type: Button, name: "Create: New Order"}
+  save: {strategy: name, control_type: Button, name: "Save"}
+
+navigator:
+  documents: {strategy: tree_path, path: ["Data", "Documents"]}
+  terms_of_payment: {strategy: tree_path, path: ["Data", "terms of payment"]}
+  vats: {strategy: tree_path, path: ["Data", "VATs"]}
+  new_contact: {strategy: name, name: "New Contact"}
+  new_product: {strategy: name, name: "New product"}
+
+# brief S1.3-1.8
+order_editor:
+  # "No." field: an Edit as expected. "Date": live-confirmed to NOT be an Edit
+  # at all -- it's a 3-segment spinner exposed as a Pane, resolved by its own
+  # name (S0) in flow.py, not by label search; kept here for traceability only.
+  no: {strategy: label, label: "No.", want: [Edit], readonly_intent: true}
+  date: {strategy: name, name: "Date", control_type: Pane}
+  cust_ref: {strategy: label, label: "Cust.Ref.", aliases: ["Kundennr."], want: [Edit]}
+  # Live-confirmed: no label reads "Net" anywhere in this editor. The price-
+  # mode control is an UNLABELED ComboBox sitting immediately right of the
+  # Date control (defaults to "Gross"), resolved positionally in flow.py
+  # (find_nearest_right), not by label -- an earlier version of this code
+  # searched for a "Net" label, found nothing, and silently did nothing; a
+  # version before THAT mis-resolved "Date" itself onto this same field via
+  # label-anchored search and overwrote it with typed date text. Both bugs
+  # were caught live, not in review.
+  price_mode: {strategy: right_of, of: date, want: [ComboBox], expect: "Net"}
+  vat_mode: {strategy: label, label: "VAT", want: [ComboBox], expect: "With VAT"}
+  discount: {strategy: label, label: "Discount", want: [Edit]}
+  shipping: {strategy: label, label: "Shipping", want: [ComboBox, Edit]}
+  # Live-confirmed: this install's totals block shows "Total Gross", with no
+  # separate "Total Net" readout at all.
+  total_gross: {strategy: label, label: "Total Gross", want: [Edit, Text], readonly: true}
+  vat_total: {strategy: label, label: "VAT", want: [Edit, Text], readonly: true}
+  total: {strategy: label, label: "Total", want: [Edit, Text], readonly: true}
+  invoice_address_block: {strategy: label, label: "Invoice address", want: [Text, Edit]}
+  delivery_address_block: {strategy: label, label: "Delivery address", want: [Text, Edit]}
+  select_contact_icon:
+    strategy: anchored_icon
+    anchor: {strategy: label, label: "Address"}   # singular -- confirmed live
+    pick: first_by_top          # upper icon; the green + is second -- never click it
+    verify_opens: "Select the address"
+  select_product_icon:
+    strategy: anchored_icon
+    anchor: {strategy: label, label: "Items"}
+    pick: first_by_top
+    verify_opens: "Select a product"
+  followup_invoice:
+    strategy: label_scoped_button
+    group: "Create a follow-up document"
+    name: "Invoice"
+
+# brief S3.13-3.16 -- column order/names confirmed live against a fresh New
+# Order editor (first column is an unlabeled position/handle column):
+item_grid:
+  region: {strategy: anchored_region, anchor: {strategy: label, label: "Items"}}
+  columns:
+    strategy: table_header
+    headers: ["", "Qty.", "Item No.", "Picture", "Name", "Description", "VAT", "U.Price", "Discount", "Price"]
+  cell: {strategy: header_x_overlap_plus_row_index}
+
+# brief S2.5-2.11
+debtor_editor:
+  customer_id: {strategy: label, label: "Customer ID", want: [Edit], readonly_intent: true}
+  company: {strategy: label, label: "Company", want: [Edit]}
+  salutation: {strategy: label, label: "Salutation", want: [ComboBox], expect: "---"}
+  first_name: {strategy: label, label: "First Name", want: [Edit]}
+  last_name: {strategy: label, label: "Name", aliases: ["Last Name"], want: [Edit]}
+  tabs: {strategy: tab_item, names: ["Addresses", "Miscellaneous", "Payment"]}
+  address:
+    street: {strategy: label, label: "Street", want: [Edit]}
+    zip: {strategy: label, label: "ZIP", want: [Edit]}
+    city: {strategy: label, label: "City", want: [Edit]}
+    country: {strategy: label, label: "Country", want: [ComboBox]}
+    email: {strategy: label, label: "E-Mail", want: [Edit]}
+    telephone: {strategy: label, label: "Telephone", want: [Edit]}
+    additional_name: {strategy: label, label: "additional name", optional: true}
+    address_specification: {strategy: label, label: "Address specification", optional: true}
+    district: {strategy: label, label: "district", optional: true}
+    role_invoice: {strategy: label, label: "Invoice address", want: [CheckBox]}
+    role_delivery: {strategy: label, label: "Delivery address", want: [CheckBox]}
+    add_address:
+      strategy: anchored_icon
+      anchor: {strategy: label, label: "Addresses"}
+      pick: last_by_top          # the green + -- used ONLY when delivery != billing
+  misc:
+    alias: {strategy: label, label: "Alias name", want: [Edit]}
+    discount: {strategy: label, label: "Discount", want: [Edit], expect: "0%"}
+    net_gross: {strategy: label, label: "Net or Gross", want: [ComboBox], expect: "Net"}
+  payment:
+    method: {strategy: label, label: "Payment", want: [ComboBox]}
+
+# brief S2.10.2-2.10.6
+payment_editor:
+  list_add: {strategy: list_header_button, list: navigator.terms_of_payment, pick: only, verify_opens_editor: true}
+  name: {strategy: label, label: "Name", want: [Edit]}
+  description: {strategy: label, label: "Description", want: [Edit]}
+  account: {strategy: label, label: "Account", want: [Edit], expect: ""}
+  code: {strategy: label, label: "payment code", aliases: ["Code"], want: [ComboBox]}
+  cash_discount: {strategy: label, label: "Cash discount", want: [Edit], expect: "0"}
+  discount_days: {strategy: label, label: "Discount Days", want: [Edit], expect: "0"}
+  net_days: {strategy: label, label: "Net Days", want: [Edit], expect: "0"}
+  text_unpaid: {strategy: label, label: "Text 'unpaid'", want: [Edit], expect: ""}
+  text_deposit: {strategy: label, label: "Text 'deposit'", want: [Edit], expect: ""}
+  text_paid: {strategy: label, label: "Text 'paid'", want: [Edit], expect: ""}
+  set_standard: {strategy: name, name: "Set as standard", never_click: true}
+
+# brief S3.4-3.6
+vat_editor:
+  list_add: {strategy: list_header_button, list: navigator.vats, pick: only}
+  name: {strategy: label, label: "Name", want: [Edit]}
+  description: {strategy: label, label: "Description", want: [Edit]}
+  value: {strategy: label, label: "Value", want: [Edit]}
+  code: {strategy: label, label: "VAT code (E-Invoice)", want: [ComboBox], expect: "S (Standard rate)"}
+  standard_vat: {strategy: label, label: "Standard VAT", never_write: true}
+
+# brief S3.8-3.10
+product_editor:
+  item_number: {strategy: label, label: "Item Number", want: [Edit]}
+  name: {strategy: label, label: "Name", want: [Edit]}
+  description: {strategy: label, label: "Description", want: [Edit]}
+  price_gross: {strategy: label, label: "Price", qualifier: "gross", want: [Edit]}
+  cost_price: {strategy: label, label: "cost price", want: [Edit], expect: "0.00"}
+  vat: {strategy: label, label: "VAT", want: [ComboBox]}
+  stock: {strategy: label, label: "Stock", want: [Edit], expect: "0.00"}
+  untouched: ["Category", "GTIN", "supplier code", "allowance", "Product Picture", "user defined field 1"]
+
+# brief S5.1-5.3
+invoice_editor:
+  invoice_no: {strategy: label, label: "Invoice No.", readonly_intent: true}
+  invoice_date: {strategy: label, label: "Invoice Date", readonly_intent: true}
+  service_date: {strategy: label, label: "Service date", readonly_intent: true}
+  payment_method: {strategy: label, label: "Payment", want: [ComboBox]}
+  paid: {strategy: label, label: "paid", want: [CheckBox]}
+  # Assumed (not independently live-verified) to be the same 3-segment Pane
+  # widget as the Order's Date field -- see order_editor.date above.
+  payment_date: {strategy: name, name: "payment date", control_type: Pane, enabled_only_when: paid}
+  value: {strategy: label, label: "Value", want: [Edit], enabled_only_when: paid}
+
+# brief S4.5 / S5.5
+documents_view:
+  search: {strategy: label, label: "Search", want: [Edit]}
+  grid: {strategy: first_of, control_type: [DataGrid, Table, List]}
+  columns: {strategy: table_header, headers: ["Document", "Date", "Cust.Ref.", "Name", "State", "Total"]}
+
+dialogs:
+  select_address:
+    title: "Select the address"
+    search: {strategy: label, label: "Search"}
+    grid: {strategy: first_of, control_type: [DataGrid, Table, List]}
+    # live-confirmed order/names -- an extra leading "Customer ID" column, and
+    # "Last Name" rather than "Name":
+    columns: ["Customer ID", "First Name", "Last Name", "Company", "ZIP", "City"]
+    ok: {strategy: name, name: "OK"}
+    cancel: {strategy: name, name: "Cancel"}
+  select_product:
+    title: "Select a product"
+    search: {strategy: label, label: "Search"}
+    grid: {strategy: first_of, control_type: [DataGrid, Table, List]}
+    columns: ["Item No.", "Category", "Name", "Description", "Price", "VAT"]   # live-confirmed, 6 cols
+    ok: {strategy: name, name: "OK"}
+    cancel: {strategy: name, name: "Cancel"}

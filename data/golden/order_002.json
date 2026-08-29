@@ -1,0 +1,63 @@
+{
+  "external_reference": "WEB-2026-0825-C19",
+  "order_date": "2026-08-25",
+  "currency": "EUR",
+  "order_discount_pct": "0",
+  "shipping_amount": "20.00",
+  "debtor": {
+    "company": "Greenfield Technologies GmbH",
+    "first_name": "Lukas",
+    "last_name": "Weber",
+    "alias": "GREENFIELD-HAMBURG",
+    "email": "[lukas.weber@example.test](mailto:lukas.weber@example.test)",
+    "phone": "+49 40 5550 7890",
+    "customer_id_hint": "CUST-3058",
+    "billing": {
+      "name": "Greenfield Technologies GmbH",
+      "street": "Altonaer Strasse 75",
+      "zip": "20357",
+      "city": "Hamburg",
+      "country": "Germany"
+    },
+    "delivery": {
+      "name": "Greenfield Technologies Office",
+      "street": "Hafenstrasse 32",
+      "zip": "20457",
+      "city": "Hamburg",
+      "country": "Germany"
+    }
+  },
+  "payment": {
+    "method": "Bank Transfer",
+    "paid_status": "UNPAID",
+    "payment_date": null
+  },
+  "items": [
+    {
+      "position": 1,
+      "sku": "MON-4K-27",
+      "description": "27 Inch 4K Monitor",
+      "quantity": "2",
+      "unit": "pcs",
+      "unit_net_price": "350.00",
+      "discount_pct": "0",
+      "vat_pct": "19",
+      "line_net_total": "700.00"
+    },
+    {
+      "position": 2,
+      "sku": "KEY-WRL-08",
+      "description": "Wireless Keyboard",
+      "quantity": "3",
+      "unit": "pcs",
+      "unit_net_price": "80.00",
+      "discount_pct": "0",
+      "vat_pct": "19",
+      "line_net_total": "240.00"
+    }
+  ],
+  "net_total": "960.00",
+  "vat_total": "182.40",
+  "gross_total": "1142.40",
+  "confidence": {}
+}
