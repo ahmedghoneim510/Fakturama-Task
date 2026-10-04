@@ -26,6 +26,11 @@ dev = ["pytest>=8", "pytest-mock>=3.14", "ruff>=0.6"]
 [project.scripts]
 fic = "fic.cli:app"
 
+[project.optional-dependencies]
+ocr = [
+    "rapidocr-onnxruntime>=1.3 ; python_full_version < '3.13'",
+]
+
 [tool.pytest.ini_options]
 markers = [
     "e2e: full flow against a live Fakturama instance (Windows only, GUI required)",

@@ -641,10 +641,14 @@ def ensure_payment_method(session: FakturamaSession, method: str, state: RunStat
     # been used. What actually reaches Fakturama, and what the Invoice later
     # selects by, is the method NAME.
     #
-    # So the decision moves to the point where it is real: if the editor DOES
-    # expose a payment-code field and we have no mapping for it, that is a
-    # genuine "a human must choose" and still halts (see below). If the field
-    # is absent, the missing mapping is irrelevant and is merely logged.
+    # An unmapped method never halts the run, whether or not the editor has a
+    # payment-code field. payment_code_map is a convenience for pre-filling a
+    # code, not an allow-list of methods: Fakturama records the method NAME,
+    # and the Invoice later selects the method by that name, so the name is
+    # written either way. With a field and a mapping, the code is selected;
+    # with a field and no mapping, the field keeps the editor's default and
+    # the gap is noted; with no field, the mapping is irrelevant and only
+    # logged.
     code = payment_code_for(method)
 
     # Live-confirmed: the navigator entry is "Payments", not "terms of
@@ -705,24 +709,27 @@ def ensure_payment_method(session: FakturamaSession, method: str, state: RunStat
         )
     except (ControlNotFound, AmbiguousControl) as exc:
         code_ctrl = None
+        mapping = (
+            f"the mapped code for {method!r} would have been {code!r}"
+            if code is not None
+            else f"{method!r} has no entry in payment_code_map, which does not matter here"
+        )
         state.note(
-            f"no payment-code field on this build's Payment editor ({exc}) -- "
-            f"nothing to set; the mapped code for {method!r} would have been {code!r}"
+            f"no payment-code field on this build's Payment editor ({exc}) -- nothing to set; {mapping}"
         )
 
     if code_ctrl is not None:
-        # The field exists, so the mapping genuinely matters here.
-        if code is None:
-            raise ManualReviewRequired(
-                f"this Fakturama build DOES expose a payment-code field, but "
-                f"{method!r} has no entry in the payment-code map "
-                f"(config/app.yaml payment_code_map). Choosing a tax/payment code "
-                f"on someone's behalf is not a guess worth making -- add the "
-                f"mapping, or route this order to manual review.",
-                method=method,
+        if code is not None:
+            actions.select_combo(code_ctrl, code)
+            state.note(f"payment code '{code}' set")
+        else:
+            # Not a halt -- see the comment at the top of this function. The
+            # map pre-fills a code; it does not decide which methods may exist.
+            state.note(
+                f"payment method {method!r} has no entry in payment_code_map "
+                f"(config/app.yaml) -- the payment-code field was left at the "
+                f"editor's default; add a mapping if this method needs a specific code"
             )
-        actions.select_combo(code_ctrl, code)
-        state.note(f"payment code '{code}' set")
 
     # These already default to zero, and they redisplay with units ("0 %"),
     # which means a plain write+read-back comparison reports a false mismatch

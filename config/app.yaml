@@ -38,16 +38,17 @@ matching:
   money_tolerance: "0.02"
   confidence_threshold: 0.80
 
-# Closed mapping, brief S2.10.4. A payment method not listed here has no defined
-# payment-code -> ManualReviewRequired, never guessed.
-# Source-document payment method -> the payment code Fakturama expects.
+# Brief S2.10.4. Source-document payment method -> the payment code Fakturama
+# expects. A convenience for pre-filling a code, NOT an allow-list of methods:
+# a method missing here never halts the run.
 #
 # Only used when the Payment editor actually exposes a payment-code field.
 # This build does not (its editor has Name/Account/Description/discount fields
 # and nothing else), so a method missing from this table is logged and the run
 # continues -- the method NAME is what gets written and what the Invoice later
-# selects by. On a build that DOES expose the field, an unmapped method halts
-# for review rather than having a code chosen on the operator's behalf.
+# selects by. On a build that DOES expose the field, an unmapped method leaves
+# it at the editor's default and the run notes it -- no code is chosen on the
+# operator's behalf, and adding a mapping here is how to set one.
 #
 # Entries below are the ones that can be justified from the payment instrument
 # itself. Anything genuinely ambiguous is deliberately absent rather than

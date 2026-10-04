@@ -1,6 +1,11 @@
 """Extraction pipeline: order image -> validated SourceOrder.
 
-Claude vision reads the image directly (no separate OCR stage on the critical path)
+Three interchangeable providers read the image: Claude and Gemini (vision LLMs)
+and a local OCR engine (fic/ocr.py -- offline, deterministic, template-bound).
+Pick one with `--provider` or FIC_PROVIDER; all three return the same validated
+SourceOrder, so nothing downstream knows which one ran.
+
+Claude vision reads the image directly (no separate OCR stage)
 and returns structured output via a *tool-forced* call -- we hand Claude a JSON Schema
 generated from the SourceOrder model and force it to call a single tool with data
 matching that schema, then validate the result through pydantic. This is the
@@ -218,6 +223,25 @@ def extract_with_gemini(image_path: Path, *, model: str | None = None) -> Source
         data, source="gemini", model=model or os.environ.get("FIC_GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     )
 
+
+def extract_with_ocr(image_path: Path, *, model: str | None = None) -> SourceOrder:
+    """Local OCR provider: no API key, no network, same output contract as the
+    two LLM extractors. `model` is accepted for signature parity and ignored --
+    there is one engine. Needs the optional extra: `uv sync --extra ocr`."""
+    from fic import ocr  # lazy: the OCR stack is an optional dependency
+
+    print(f"  reading the image with local OCR ({ocr.ENGINE_NAME}) ...", flush=True)
+    started = time.monotonic()
+    data, notes = ocr.read_order(image_path)
+    print(f"  image read in {time.monotonic() - started:.0f}s", flush=True)
+    for note in notes:
+        print(f"  note: {note}", flush=True)
+    return parse_extraction(data, source="ocr", model=ocr.ENGINE_NAME)
+
+
+# Every value --provider / FIC_PROVIDER accepts. "ocr" is the local engine.
+PROVIDERS = ("claude", "gemini", "ocr")
+LLM_PROVIDERS = ("claude", "gemini")
 
 GEMINI_RETRIES = int(os.environ.get("FIC_GEMINI_RETRIES", "4"))
 # Per-request ceiling in SECONDS (converted to the SDK's milliseconds below).
@@ -446,7 +470,9 @@ def extract_and_reconcile(
     order = _extract_once(image_path, provider=provider, model=model)
     high, low = completeness_gaps(order)
 
-    attempts_left = EXTRACT_RETRIES
+    # Re-reading only helps a stochastic reader. OCR returns the same boxes for
+    # the same pixels, so a second pass would just repeat the first.
+    attempts_left = EXTRACT_RETRIES if provider in LLM_PROVIDERS else 0
     while high and attempts_left > 0:
         attempts_left -= 1
         print(
@@ -511,8 +537,10 @@ def _extract_once(image_path: Path, *, provider: str, model: str | None) -> Sour
         order = extract_with_claude(image_path, model=model)
     elif provider == "gemini":
         order = extract_with_gemini(image_path, model=model)
+    elif provider == "ocr":
+        order = extract_with_ocr(image_path)
     else:
-        raise ValueError(f"unknown provider {provider!r}")
+        raise ValueError(f"unknown provider {provider!r} -- expected one of {', '.join(PROVIDERS)}")
     reconcile(order)
     return order
 
@@ -584,37 +612,27 @@ def completeness_gaps(order: SourceOrder) -> tuple[list[str], list[str]]:
     return high, low
 
 
-def self_consistency_check(image_path: Path) -> SourceOrder:
-    """Extract with both providers and diff the money-bearing fields. Disagreement
-    is a designed halt (X8): two different models disagreeing on a total or VAT%
-    means the source image is likely genuinely ambiguous, not just noisy. Returns
-    the Claude extraction (primary) if both agree within tolerance."""
-    claude_order = extract_and_reconcile(image_path, provider="claude")
-    gemini_order = extract_and_reconcile(image_path, provider="gemini")
+def self_consistency_check(
+    image_path: Path, *, primary: str = "claude", secondary: str = "gemini"
+) -> SourceOrder:
+    """Extract with two providers and diff the money-bearing fields. Disagreement
+    is a designed halt (X8): two independent readers disagreeing on a total or
+    VAT% means the source image is likely genuinely ambiguous, not just noisy.
+    Returns the `primary` extraction if both agree within tolerance.
 
-    diffs: list[str] = []
-    for field in ("net_total", "vat_total", "gross_total"):
-        a, b = getattr(claude_order, field), getattr(gemini_order, field)
-        if abs(a - b) > TOLERANCE:
-            diffs.append(f"{field}: claude={a} gemini={b}")
-    if len(claude_order.items) != len(gemini_order.items):
-        diffs.append(
-            f"item count mismatch: claude={len(claude_order.items)} "
-            f"gemini={len(gemini_order.items)}"
-        )
-    else:
-        for i, (ci, gi) in enumerate(zip(claude_order.items, gemini_order.items)):
-            if ci.sku.strip().casefold() != gi.sku.strip().casefold():
-                diffs.append(f"item {i} sku: claude={ci.sku!r} gemini={gi.sku!r}")
-            if abs(ci.line_net_total - gi.line_net_total) > TOLERANCE:
-                diffs.append(
-                    f"item {i} line_net_total: claude={ci.line_net_total} "
-                    f"gemini={gi.line_net_total}"
-                )
+    Any two of PROVIDERS work. Claude + Gemini is two models; an LLM + "ocr" is
+    two different *kinds* of reader -- a language model and a pixel recognizer
+    rarely misread the same digit the same way, so their agreement is the
+    stronger signal."""
+    if primary == secondary:
+        raise ValueError(f"cross-check needs two different providers, got {primary!r} twice")
+    first = extract_and_reconcile(image_path, provider=primary)
+    second = extract_and_reconcile(image_path, provider=secondary)
 
+    diffs = money_diffs(first, second, primary, secondary)
     if diffs:
         raise ManualReviewRequired(
-            "Claude and Gemini extractions disagree on money-bearing fields",
+            f"{primary} and {secondary} extractions disagree on money-bearing fields",
             diffs=diffs,
         )
-    return claude_order
+    return first

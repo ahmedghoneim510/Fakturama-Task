@@ -17,3 +17,7 @@ runs/*
 
 # local Fakturama workspace copies used for e2e test resets
 .fakturama-test-workspace/
+
+# personal study notes -- per-module deep dives on the automation layer, written
+# for my own reference rather than as part of the submission
+docs/uia/

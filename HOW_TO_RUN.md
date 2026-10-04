@@ -37,6 +37,13 @@ and installs this project so the **`fic`** command exists. Check it:
 uv run fic --help
 ```
 
+**Want the local OCR reader too** (`--provider ocr`, no API key)? Install the optional
+extra instead — and keep passing it, because a plain `uv sync` removes it again:
+
+```bash
+uv sync --extra ocr
+```
+
 From here on, **prefix every command with `uv run`**. You never need to activate the
 venv or install anything by hand.
 
@@ -81,9 +88,45 @@ The settings that matter:
 
 ```ini
 GEMINI_API_KEY=your-key-here      # required
-FIC_PROVIDER=gemini               # which model reads the image: gemini | claude
+FIC_PROVIDER=gemini               # what reads the image: gemini | claude | ocr
 FIC_GEMINI_MODEL=gemini-flash-latest
 ```
+
+### OCR or LLM — switching between them
+
+Three readers, one output. Whichever you pick, the result goes through the same
+validation, so the rest of the run cannot tell them apart.
+
+| | `gemini` / `claude` (LLM) | `ocr` (local) |
+|---|---|---|
+| Needs | an API key, network | `uv sync --extra ocr`, nothing else |
+| Layouts | any order, even one it has never seen | **only this order template** — the labels it knows are in `LABELS` / `HEADERS` in `src/fic/ocr.py` |
+| Same image twice | can differ | identical every time |
+| Customer data | sent to Google / Anthropic | never leaves the machine |
+| Speed / cost | 10–60 s, per-call cost | ~4 s, free |
+
+Switch it **for every run** in `.env`:
+
+```ini
+FIC_PROVIDER=ocr        # or gemini, or claude
+```
+
+or **for one run** with `--provider`, which wins over `.env`:
+
+```bash
+uv run fic run data/input/my_invoice.png --provider ocr
+uv run fic run data/input/my_invoice.png --provider gemini
+```
+
+Or use **both** and let them check each other — the run halts if the LLM and the
+OCR disagree on any money field:
+
+```bash
+uv run fic run data/input/my_invoice.png --provider gemini --cross-check --check-with ocr
+```
+
+When the OCR can't find a label it expects (a different document layout), it stops
+with `ExtractionError` naming that label — switch that document to an LLM provider.
 
 ### Choosing the model — read this, it will save you time
 
@@ -220,8 +263,12 @@ uv run fic run --from-json data/golden/my_invoice.json
 # use Claude instead of Gemini for one run
 uv run fic run data/input/my_invoice.png --provider claude
 
-# read the image with BOTH models and halt if they disagree on any money field
-uv run fic run data/input/my_invoice.png --cross-check
+# read the image with local OCR — no API key, nothing sent anywhere
+uv run fic run data/input/my_invoice.png --provider ocr
+
+# read the image with TWO readers and halt if they disagree on any money field
+uv run fic run data/input/my_invoice.png --cross-check                    # gemini + claude
+uv run fic run data/input/my_invoice.png --cross-check --check-with ocr   # gemini + ocr
 
 # dump Fakturama's live UI tree (for debugging selectors)
 uv run fic probe
@@ -319,7 +366,13 @@ only you can tell whether it's the same customer or a coincidence.
 - **Delivery address name handling:** the document gives one combined name, and it goes
   into the delivery *Company* field. Splitting it into first/last would be inventing
   structure the document doesn't have.
-- **`--cross-check` needs both keys** (`ANTHROPIC_API_KEY` and `GEMINI_API_KEY`).
+- **`--cross-check` needs a key for each LLM it uses** — both keys for the default
+  gemini + claude pair, one key for an LLM + `ocr` pair.
+- **The OCR reader knows one template.** It finds fields by their printed labels
+  ("EXTERNAL REFERENCE", "NET TOTAL" ...). A document laid out differently stops with
+  `ExtractionError`; it is never half-read. It also splits the contact name by
+  position (last word = last name), which is wrong for names like "van der Berg".
+- **OCR needs Python < 3.13** (the `rapidocr-onnxruntime` wheels stop there).
 
 ---
 

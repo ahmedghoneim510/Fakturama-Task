@@ -38,6 +38,7 @@ def date_format() -> str:
 
 
 def payment_code_for(method: str) -> str | None:
-    """Brief S2.10.4's closed mapping. Returns None for an unmapped method --
-    callers must treat that as OptionUnavailable, never guess a code."""
+    """Brief S2.10.4's mapping. Returns None for an unmapped method -- callers
+    leave the code at its default and note it, never guess a code. Not an
+    allow-list: an unmapped method is still a valid method."""
     return app_config()["payment_code_map"].get(method)

@@ -86,6 +86,8 @@ fic probe                                           # dump the live UIA tree of 
 fic run data/input/order_001.png                    # full flow, image -> Order + Invoice
 fic run data/input/order_001.png --dry-run          # extract + reconcile, stop before touching the UI
 fic run data/input/order_001.png --cross-check      # Claude + Gemini, diff money fields (needs GEMINI_API_KEY)
+fic run data/input/order_001.png --provider ocr     # local OCR, no API key (needs `uv sync --extra ocr`)
+fic run data/input/order_001.png --cross-check --check-with ocr   # LLM + OCR must agree on money
 
 # Run from an already-extracted order JSON instead of an image -- no API key needed
 fic run --from-json data/golden/order_002.json

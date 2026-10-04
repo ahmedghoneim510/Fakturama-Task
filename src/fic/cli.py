@@ -11,19 +11,33 @@ from rich.console import Console
 
 load_dotenv()
 
-# Which vision model reads the order image. Overridable per-run with
-# `--provider`, or globally with FIC_PROVIDER in .env, so switching does not
-# mean editing code. Read after load_dotenv() so .env wins.
+# Which reader turns the order image into data: an LLM (gemini | claude) or the
+# local OCR engine (ocr). Overridable per-run with `--provider`, or globally
+# with FIC_PROVIDER in .env, so switching does not mean editing code. Read
+# after load_dotenv() so .env wins.
 DEFAULT_PROVIDER = os.environ.get("FIC_PROVIDER", "gemini").strip().lower()
+PROVIDER_HELP = "gemini | claude | ocr (local, no API key; needs `uv sync --extra ocr`)"
 
 app = typer.Typer(add_completion=False, help="Fakturama Image-to-Cash Automation")
 console = Console()
 
 
+def _check_provider(value: str | None) -> str | None:
+    """Fail on a typo before any work starts, not after a Fakturama cold start."""
+    from fic.extraction import PROVIDERS
+
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value not in PROVIDERS:
+        raise typer.BadParameter(f"{value!r} is not one of: {', '.join(PROVIDERS)}")
+    return value
+
+
 @app.command()
 def extract(
     image: Path = typer.Argument(..., exists=True, help="Path to the order image"),
-    provider: str = typer.Option(DEFAULT_PROVIDER, help="claude | gemini"),
+    provider: str = typer.Option(DEFAULT_PROVIDER, help=PROVIDER_HELP, callback=_check_provider),
     out: Path | None = typer.Option(None, "-o", "--out", help="Write JSON here instead of stdout"),
 ):
     """Extract + reconcile a source order image, no UI involved at all."""
@@ -64,8 +78,15 @@ def run(
         exists=True,
         help="Skip extraction and use an already-extracted order JSON (no API key needed)",
     ),
-    provider: str = typer.Option(DEFAULT_PROVIDER, help="claude | gemini"),
-    cross_check: bool = typer.Option(False, help="Extract with both providers and diff money fields"),
+    provider: str = typer.Option(DEFAULT_PROVIDER, help=PROVIDER_HELP, callback=_check_provider),
+    cross_check: bool = typer.Option(
+        False, help="Extract with two providers (--provider and --check-with) and diff money fields"
+    ),
+    check_with: str | None = typer.Option(
+        None,
+        help="Second provider for --cross-check. Default: gemini, or claude when --provider is gemini",
+        callback=_check_provider,
+    ),
     dry_run: bool = typer.Option(
         False, help="Extract + reconcile + resolve every locator, click nothing that mutates"
     ),
@@ -112,9 +133,11 @@ def run(
             reconcile(order)  # same tier-2 gate as an extracted order -- never skipped
             console.print(f"[green]loaded + reconciled {from_json}[/green]")
         else:
-            order = self_consistency_check(image) if cross_check else extract_and_reconcile(
-                image, provider=provider
-            )
+            if cross_check:
+                secondary = check_with or ("claude" if provider == "gemini" else "gemini")
+                order = self_consistency_check(image, primary=provider, secondary=secondary)
+            else:
+                order = extract_and_reconcile(image, provider=provider)
             console.print("[green]extraction + reconciliation OK[/green]")
         write_extraction(run_dir, order)
 

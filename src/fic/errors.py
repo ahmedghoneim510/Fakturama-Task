@@ -36,8 +36,8 @@ class ExtractionError(AutomationError):
 
 
 class ManualReviewRequired(AutomationError):
-    """A business rule says stop — ambiguous match, unmapped payment method,
-    unrecognized payment status, contradictory data, cross-provider disagreement."""
+    """A business rule says stop — ambiguous match, unrecognized payment status,
+    contradictory data, cross-provider disagreement."""
 
     exit_code = 2
 
@@ -63,8 +63,8 @@ class AmbiguousControl(ManualReviewRequired):
 
 
 class OptionUnavailable(ManualReviewRequired):
-    """An exact dropdown/combo value was required and genuinely absent (e.g. a
-    payment method with no entry in the payment-code map)."""
+    """An exact dropdown/combo value was required and genuinely absent (e.g. the
+    Invoice's Payment combo does not offer the method the source document names)."""
 
 
 class VerificationFailed(AutomationError):
